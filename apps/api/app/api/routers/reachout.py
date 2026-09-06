@@ -32,6 +32,27 @@ from app.services.people_search import get_people_search_client
 router = APIRouter(tags=["reachout"])
 
 
+async def _sync_call_from_hunar(call: Call, hunar_client: HunarClient, db: Session) -> None:
+    """Refresh a reachout call so the dashboard works even if a webhook is delayed."""
+    try:
+        remote = await hunar_client.get_call(call.hunar_call_id)
+    except HunarAPIError:
+        return
+
+    for field in ("status", "lifecycle_status", "recording_url", "engagement_status"):
+        if field in remote:
+            setattr(call, field, remote[field])
+    if "result_json" in remote:
+        call.result_json = remote["result_json"]
+    elif "result" in remote:
+        call.result_json = remote["result"]
+    if "duration_seconds" in remote:
+        call.duration_seconds = remote["duration_seconds"]
+    elif "duration_minutes" in remote:
+        call.duration_seconds = float(remote["duration_minutes"]) * 60
+    db.commit()
+
+
 async def get_hunar_client() -> AsyncIterator[HunarClient]:
     client = HunarClient()
     try:
@@ -191,8 +212,15 @@ async def trigger_reachout_call(
 
 
 @router.get("/jobs/{job_id}/reachout-dashboard", response_model=list[ReachoutDashboardRead])
-def reachout_dashboard(job_id: UUID, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+async def reachout_dashboard(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    hunar_client: HunarClient = Depends(get_hunar_client),
+) -> list[dict[str, Any]]:
     _ = get_job(db, job_id)
+    stored_calls = list(db.scalars(select(Call).where(Call.job_id == job_id)).all())
+    for call in stored_calls:
+        await _sync_call_from_hunar(call, hunar_client, db)
     rows = db.execute(
         select(Candidate, Call.status, Call.result_json)
         .outerjoin(Call, (Call.candidate_id == Candidate.id) & (Call.job_id == job_id))
