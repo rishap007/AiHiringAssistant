@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     llm_model: str = ""
     people_search_provider: str = "mock"
     people_search_api_key: str | None = None
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     model_config = SettingsConfigDict(
         env_file=".env",
