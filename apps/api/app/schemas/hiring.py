@@ -11,7 +11,7 @@ class HiringSchema(BaseModel):
 
 class JobCreate(BaseModel):
     title: str = Field(min_length=1)
-    description: str = Field(min_length=1)
+    description: str = ""
 
 
 class JobRead(HiringSchema):
